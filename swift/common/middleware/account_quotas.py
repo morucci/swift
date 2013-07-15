@@ -48,7 +48,7 @@ post -m quota-bytes:
 
 from swift.common.swob import HTTPForbidden, HTTPRequestEntityTooLarge, \
     HTTPBadRequest, wsgify
-
+from swift.common.wsgi import make_pre_authed_request
 from swift.proxy.controllers.base import get_account_info
 
 
@@ -68,11 +68,12 @@ class AccountQuotaMiddleware(object):
             return self.app
 
         try:
-            request.split_path(2, 4, rest_with_last=True)
+            path = request.split_path(2, 4, rest_with_last=True)
         except ValueError:
             return self.app
 
         new_quota = request.headers.get('X-Account-Meta-Quota-Bytes')
+        copy_from = request.headers.get('X-Copy-From')
 
         if request.environ.get('reseller_request') is True:
             if new_quota and not new_quota.isdigit():
@@ -83,10 +84,27 @@ class AccountQuotaMiddleware(object):
         if new_quota is not None:
             return HTTPForbidden()
 
+        is_copy = False
+        if path[-1] and copy_from:
+            is_copy = True
+            path = path[0] + '/' + path[1] + '/' + copy_from
+            req = make_pre_authed_request(request.environ,
+                                          method='HEAD',
+                                          path=path,
+                                          swift_source='ac')
+            resp = req.get_response(self.app)
+            # verify response status
+            obj_to_copy_len = int(resp.headers.get('content-length'))
+
+
         account_info = get_account_info(request.environ, self.app)
         if not account_info or not account_info['bytes']:
             return self.app
-        new_size = int(account_info['bytes']) + (request.content_length or 0)
+
+        if is_copy:
+            new_size = int(account_info['bytes']) + obj_to_copy_len
+        else:
+            new_size = int(account_info['bytes']) + (request.content_length or 0)
         quota = int(account_info['meta'].get('quota-bytes', -1))
 
         if 0 <= quota < new_size:

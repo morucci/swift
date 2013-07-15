@@ -20,6 +20,7 @@ from swift.common.middleware import account_quotas
 from swift.proxy.controllers.base import _get_cache_key, \
     headers_to_account_info
 
+#TODO(fbo): PEP8
 
 class FakeCache(object):
     def __init__(self, val):
@@ -46,15 +47,18 @@ class FakeApp(object):
         self.headers = headers
 
     def __call__(self, env, start_response):
-        # Cache the account_info (same as a real application)
-        cache_key, env_key = _get_cache_key('a', None)
-        env[env_key] = headers_to_account_info(self.headers, 200)
-        start_response('200 OK', self.headers)
+        if env['REQUEST_METHOD'] == "HEAD" and env['PATH_INFO'] == 'v1/a/c2/o2':
+            start_response('200 OK', [('Content-Length', '1000'),])
+        else:
+            # Cache the account_info (same as a real application)
+            cache_key, env_key = _get_cache_key('a', None)
+            env[env_key] = headers_to_account_info(self.headers, 200)
+            start_response('200 OK', self.headers)
         return []
 
 
-def start_response(*args):
-    pass
+#def start_response(*args):
+#    pass
 
 
 class TestAccountQuota(unittest.TestCase):
@@ -90,6 +94,21 @@ class TestAccountQuota(unittest.TestCase):
                                      'swift.cache': cache})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 413)
+
+    def test_exceed_bytes_quota_copy_from(self):
+         headers = [('x-account-bytes-used', '500'),
+                    ('x-account-meta-quota-bytes', '1000')]
+         app = account_quotas.AccountQuotaMiddleware(FakeApp(headers))
+         cache = FakeCache(None)
+         req = Request.blank('/v1/a/c/o',
+                             environ={'REQUEST_METHOD': 'PUT',
+                             'swift.cache': cache},
+                             headers={'x-copy-from': 'c2/o2'})
+         res = req.get_response(app)
+         self.assertEquals(res.status_int, 413)
+    
+    def test_not_exceed_bytes_quota_copy_from(self):
+        pass
 
     def test_exceed_bytes_quota_reseller(self):
         headers = [('x-account-bytes-used', '1000'),
