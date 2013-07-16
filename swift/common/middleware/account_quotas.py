@@ -96,7 +96,8 @@ class AccountQuotaMiddleware(object):
         is_copy = False
         if path[-1] and copy_from:
             is_copy = True
-            path = "/".join(path[0:2]) + '/' + copy_from
+            path = '/'.join(path[0:2]) + '/' + copy_from.lstrip('/')
+            path = '/' + path.lstrip('/')
             obj_to_copy_len = self.retrieve_content_length_obj(request, path)
             if not obj_to_copy_len:
                 return self.app

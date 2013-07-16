@@ -47,10 +47,10 @@ class FakeApp(object):
 
     def __call__(self, env, start_response):
         if env['REQUEST_METHOD'] == "HEAD" and \
-                env['PATH_INFO'] == 'v1/a/c2/o2':
+                env['PATH_INFO'] == '/v1/a/c2/o2':
             start_response('200 OK', [('Content-Length', '1000'), ])
         elif env['REQUEST_METHOD'] == "HEAD" and \
-                env['PATH_INFO'] == 'v1/a/c2/o3':
+                env['PATH_INFO'] == '/v1/a/c2/o3':
             start_response('404 Not Found', [])
         else:
             # Cache the account_info (same as a real application)
@@ -102,7 +102,7 @@ class TestAccountQuota(unittest.TestCase):
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT',
                             'swift.cache': cache},
-                            headers={'x-copy-from': 'c2/o2'})
+                            headers={'x-copy-from': '/c2/o2'})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 413)
 
@@ -114,7 +114,7 @@ class TestAccountQuota(unittest.TestCase):
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT',
                             'swift.cache': cache},
-                            headers={'x-copy-from': 'c2/o2'})
+                            headers={'x-copy-from': '/c2/o2'})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 200)
 
@@ -126,7 +126,7 @@ class TestAccountQuota(unittest.TestCase):
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT',
                             'swift.cache': cache},
-                            headers={'x-copy-from': 'c2/o3'})
+                            headers={'x-copy-from': '/c2/o3'})
         res = req.get_response(app)
         self.assertEquals(res.status_int, 200)
 
