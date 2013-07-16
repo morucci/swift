@@ -61,6 +61,15 @@ class AccountQuotaMiddleware(object):
     def __init__(self, app, *args, **kwargs):
         self.app = app
 
+    def retrieve_content_length_obj(self, req, path):
+        req = make_pre_authed_request(req.environ,
+                                      method='HEAD',
+                                      path=path,
+                                      swift_source='ac')
+        resp = req.get_response(self.app)
+        if resp.is_success:
+            return int(resp.headers.get('content-length'))
+
     @wsgify
     def __call__(self, request):
 
@@ -87,15 +96,10 @@ class AccountQuotaMiddleware(object):
         is_copy = False
         if path[-1] and copy_from:
             is_copy = True
-            path = path[0] + '/' + path[1] + '/' + copy_from
-            req = make_pre_authed_request(request.environ,
-                                          method='HEAD',
-                                          path=path,
-                                          swift_source='ac')
-            resp = req.get_response(self.app)
-            # verify response status
-            obj_to_copy_len = int(resp.headers.get('content-length'))
-
+            path = "/".join(path[0:2]) + '/' + copy_from
+            obj_to_copy_len = self.retrieve_content_length_obj(request, path)
+            if not obj_to_copy_len:
+                return self.app
 
         account_info = get_account_info(request.environ, self.app)
         if not account_info or not account_info['bytes']:
@@ -104,7 +108,8 @@ class AccountQuotaMiddleware(object):
         if is_copy:
             new_size = int(account_info['bytes']) + obj_to_copy_len
         else:
-            new_size = int(account_info['bytes']) + (request.content_length or 0)
+            new_size = int(account_info['bytes']) + \
+                (request.content_length or 0)
         quota = int(account_info['meta'].get('quota-bytes', -1))
 
         if 0 <= quota < new_size:
