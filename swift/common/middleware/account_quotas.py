@@ -52,6 +52,16 @@ from swift.common.wsgi import make_pre_authed_request
 from swift.proxy.controllers.base import get_account_info
 
 
+def get_object_size(app, req, path):
+    req = make_pre_authed_request(req.environ,
+                                  method='HEAD',
+                                  path=path,
+                                  swift_source='aq')
+    resp = req.get_response(app)
+    if resp.is_success:
+        return int(resp.headers.get('content-length'))
+
+
 class AccountQuotaMiddleware(object):
     """ Account quota middleware
 
@@ -61,15 +71,6 @@ class AccountQuotaMiddleware(object):
     def __init__(self, app, *args, **kwargs):
         self.app = app
 
-    def retrieve_content_length_obj(self, req, path):
-        req = make_pre_authed_request(req.environ,
-                                      method='HEAD',
-                                      path=path,
-                                      swift_source='ac')
-        resp = req.get_response(self.app)
-        if resp.is_success:
-            return int(resp.headers.get('content-length'))
-
     @wsgify
     def __call__(self, request):
 
@@ -77,12 +78,11 @@ class AccountQuotaMiddleware(object):
             return self.app
 
         try:
-            path = request.split_path(2, 4, rest_with_last=True)
+            ver, acc, cont, obj = request.split_path(2, 4, rest_with_last=True)
         except ValueError:
             return self.app
 
         new_quota = request.headers.get('X-Account-Meta-Quota-Bytes')
-        copy_from = request.headers.get('X-Copy-From')
 
         if request.environ.get('reseller_request') is True:
             if new_quota and not new_quota.isdigit():
@@ -92,25 +92,19 @@ class AccountQuotaMiddleware(object):
         # deny quota set for non-reseller
         if new_quota is not None:
             return HTTPForbidden()
+        
+        copy_from = request.headers.get('X-Copy-From')
+        content_length = (request.content_length or 0)
 
-        is_copy = False
-        if path[-1] and copy_from:
-            is_copy = True
-            path = '/'.join(path[0:2]) + '/' + copy_from.lstrip('/')
-            path = '/' + path.lstrip('/')
-            obj_to_copy_len = self.retrieve_content_length_obj(request, path)
-            if not obj_to_copy_len:
-                return self.app
+        if obj and copy_from:
+            path = '/' + ver + '/' + acc + '/' + copy_from.lstrip('/')
+            content_length = (get_object_size(self.app, request, path) or 0)
 
         account_info = get_account_info(request.environ, self.app)
         if not account_info or not account_info['bytes']:
             return self.app
 
-        if is_copy:
-            new_size = int(account_info['bytes']) + obj_to_copy_len
-        else:
-            new_size = int(account_info['bytes']) + \
-                (request.content_length or 0)
+        new_size = int(account_info['bytes']) + content_length
         quota = int(account_info['meta'].get('quota-bytes', -1))
 
         if 0 <= quota < new_size:
