@@ -18,11 +18,13 @@ from urllib import unquote
 
 from swift.account.utils import account_listing_response
 from swift.common.request_helpers import get_listing_content_type
-from swift.common.utils import public
+from swift.common.utils import public, config_true_value
 from swift.common.constraints import check_metadata, MAX_ACCOUNT_NAME_LENGTH
-from swift.common.http import HTTP_NOT_FOUND, HTTP_GONE
-from swift.proxy.controllers.base import Controller, clear_info_cache
-from swift.common.swob import HTTPBadRequest, HTTPMethodNotAllowed
+from swift.common.http import HTTP_NOT_FOUND, HTTP_GONE, HTTP_NO_CONTENT, \
+                              is_success
+from swift.proxy.controllers.base import Controller, clear_info_cache, \
+                                         _get_info_cache, update_headers
+from swift.common.swob import HTTPBadRequest, HTTPMethodNotAllowed, Response
 
 
 class AccountController(Controller):
@@ -43,17 +45,31 @@ class AccountController(Controller):
             resp.body = 'Account name length of %d longer than %d' % \
                         (len(self.account_name), MAX_ACCOUNT_NAME_LENGTH)
             return resp
+        
+        resp = None
+        if not config_true_value(req.headers.get('x-newest', 'f')):
+            account = req.path_info.strip('/')
+            infos = _get_info_cache(self.app, req.environ, account)
+            if infos and is_success(infos['status']):
+                resp = Response(request=req)
+                resp.status_int = infos['status']
+                update_headers(resp, infos)
 
-        partition, nodes = self.app.account_ring.get_nodes(self.account_name)
-        resp = self.GETorHEAD_base(
-            req, _('Account'), self.app.account_ring, partition,
-            req.path_info.rstrip('/'))
-        if resp.status_int == HTTP_NOT_FOUND:
-            if resp.headers.get('X-Account-Status', '').lower() == 'deleted':
-                resp.status = HTTP_GONE
-            elif self.app.account_autocreate:
-                resp = account_listing_response(self.account_name, req,
-                                                get_listing_content_type(req))
+        if not resp:
+            partition, nodes = self.app.account_ring.get_nodes(
+                                   self.account_name)
+            resp = self.GETorHEAD_base(
+                req, _('Account'), self.app.account_ring, partition,
+                req.path_info.rstrip('/'))
+            if resp.status_int == HTTP_NOT_FOUND:
+                if resp.headers.get('X-Account-Status', '').lower() == \
+                    'deleted':
+                    resp.status = HTTP_GONE
+                elif self.app.account_autocreate:
+                    resp = account_listing_response(
+                               self.account_name, req,
+                               get_listing_content_type(req))
+
         if not req.environ.get('swift_owner', False):
             for key in self.app.swift_owner_headers:
                 if key in resp.headers:

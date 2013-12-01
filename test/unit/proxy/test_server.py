@@ -5913,10 +5913,14 @@ class TestAccountController(unittest.TestCase):
                                             container_ring=FakeRing(),
                                             object_ring=FakeRing)
 
-    def assert_status_map(self, method, statuses, expected, env_expected=None):
+    def assert_status_map(self, method, statuses,
+                          expected, env_expected=None,
+                          cache=None, headers=None):
+        # FBO
         with save_globals():
             set_http_connect(*statuses)
-            req = Request.blank('/a', {})
+            self.app.memcache.store = cache or {}
+            req = Request.blank('/a', {}, headers=headers or {})
             self.app.update_request(req)
             res = method(req)
             self.assertEquals(res.status_int, expected)
@@ -6019,7 +6023,6 @@ class TestAccountController(unittest.TestCase):
                                    (500, 500, 400), 503)
 
     def test_HEAD(self):
-        # Same behaviour as GET
         with save_globals():
             controller = proxy_server.AccountController(self.app, 'account')
             self.assert_status_map(controller.HEAD, (200,), 200, 200)
@@ -6035,6 +6038,12 @@ class TestAccountController(unittest.TestCase):
             self.assert_status_map(controller.HEAD, (404, 404, 503), 404, 404)
             self.assert_status_map(controller.HEAD, (404, 503, 503), 503)
             self.assert_status_map(controller.HEAD, (404, 503, 204), 204, 204)
+            cache = {'account/a': {'status': 204,
+                                   'container_count': '12345'}}
+            self.assert_status_map(controller.HEAD, (),
+                                   204, 204, cache)
+            self.assert_status_map(controller.HEAD, (204, 204, 204),
+                                   204, 204, cache, {'x-newest': 'true'})
 
     def test_HEAD_autocreate(self):
         # Same behaviour as GET

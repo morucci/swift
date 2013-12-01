@@ -55,6 +55,9 @@ class TestAccountController(unittest.TestCase):
         for key in owner_headers:
             self.assertTrue(key not in resp.headers)
 
+        # clean previously cached about account
+        self.app.memcache.delete('account/a')
+
         req = Request.blank('/a', environ={'swift_owner': True})
         with mock.patch('swift.proxy.controllers.base.http_connect',
                         fake_http_connect(200, headers=owner_headers)):
